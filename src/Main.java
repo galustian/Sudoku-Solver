@@ -1,9 +1,18 @@
+import java.io.File;
+import java.io.IOException;
 import java.util.*;
 
 public class Main {
     public static void main(String[] args) {
-        var sudokuBoard = getSudokuBoardFromFile("sudoku.txt");
-        var solvedBoard = getSolvedBoard(sudokuBoard);
+        var sudokuBoards = getSudokuBoardsFromFile("sudoku.txt");
+        for (var sudokuBoard : sudokuBoards) {
+            System.out.println("Unsolved:");
+            printSudokuBoard(sudokuBoard.board);
+
+            var solvedBoard = getSolvedBoard(sudokuBoard);
+            System.out.println("\nSolved:");
+            printSudokuBoard(solvedBoard.board);
+        }
     }
 
     private static Board getSolvedBoard(Board board) {
@@ -16,8 +25,6 @@ public class Main {
             var validBoard = newBoard.setXYToNum(pos.x, pos.y, num);
             if (!validBoard) continue;
 
-            assert newBoard.isValidBoard();
-
             if (newBoard.numEmptyPositions() == 0)
                 return newBoard;
 
@@ -29,17 +36,64 @@ public class Main {
         return null;
     }
 
-    private static Board getSudokuBoardFromFile(String fileName) {
+    private static List<Board> getSudokuBoardsFromFile(String fileName) {
+        var allBoards = new ArrayList<Board>();
 
+        try (var scanner = new Scanner(new File(fileName))) {
+            int[][] board = new int[9][9];
+            var lineCount = 0;
+
+            while (scanner.hasNext()) {
+                var line = scanner.nextLine();
+                if (line.contains("Grid")) continue;
+
+                var charArray = line.toCharArray();
+                for (int i = 0; i < 9; i++)
+                    board[i][lineCount] = Character.getNumericValue(charArray[i]);
+
+                lineCount++;
+                if (lineCount == 9) {
+                    allBoards.add(new Board(board));
+                    board = new int[9][9];
+                    lineCount = 0;
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return allBoards;
+    }
+
+    private static void printSudokuBoard(int[][] board) {
+        for (int i = 0; i < 9; i++) {
+            var horizontalString = "";
+            for (int j = 0; j < 9; j++) {
+                if (j != 0 && j % 3 == 0) horizontalString += " | ";
+                horizontalString += board[j][i];
+                if ((j + 1) % 3 != 0) horizontalString += " ";
+            }
+            if (i != 0 && i % 3 == 0) System.out.println("- - - - - - - - - - -");
+            System.out.println(horizontalString);
+        }
     }
 }
 
 class Board {
-    private int[][] board;
+    int[][] board;
     private List<List<Set<Integer>>> boardPossibilities;
 
     Board(int[][] board) {
         this.board = board;
+        this.boardPossibilities = new ArrayList<>();
+        for (int i = 0; i < 9; i++) {
+            var hashSetList = new ArrayList<Set<Integer>>();
+            for (int j = 0; j < 9; j++) {
+                hashSetList.add(new HashSet<>());
+            }
+            this.boardPossibilities.add(hashSetList);
+        }
+
         for (int i = 0; i < 9; i++) {
             for (int j = 0; j < 9; j++) {
                 if (board[i][j] != 0) continue;
@@ -55,19 +109,11 @@ class Board {
         for (int i = 0; i < 9; i++) {
             var setArray = new ArrayList<Set<Integer>>();
             for (int j = 0; j < 9; j++) {
-                this.board[i][j] = board.numAt(i, j);
-                setArray.add(new HashSet<>(board.boardPossibilities.get(i).get(j)));
+                this.board[i][j] = board.board[i][j];
+                setArray.add(new HashSet<>(board.possibilitiesAt(i, j)));
             }
             this.boardPossibilities.add(setArray);
         }
-    }
-
-    int numAt(int x, int y) {
-        return board[x][y];
-    }
-
-    Set<Integer> possibilitiesAt(int x, int y) {
-        return boardPossibilities.get(x).get(y);
     }
 
     // board is assumed to be empty
@@ -78,8 +124,8 @@ class Board {
         // remove nums from 3x3 square
         var startX = (x / 3) * 3;
         var startY = (y / 3) * 3;
-        for (int i = startX; i <= startX + 3; i++) {
-            for (int j = startY; j <= startY + 3; j++) {
+        for (int i = startX; i < startX + 3; i++) {
+            for (int j = startY; j < startY + 3; j++) {
                 possibleNums.remove(board[i][j]);
             }
         }
@@ -90,8 +136,6 @@ class Board {
         }
 
         boardPossibilities.get(x).set(y, possibleNums);
-        var validBoard = updateBoardPossibilities(x, y);
-        assert validBoard;
     }
 
     Position getPosWithLeastPossibilities() {
@@ -112,10 +156,6 @@ class Board {
     boolean setXYToNum(int x, int y, int num) {
         board[x][y] = num;
         return updateBoardPossibilities(x, y);
-    }
-
-    int numEmptyPositions() {
-        return -1;
     }
 
     private boolean updateBoardPossibilities(int x, int y) {
@@ -139,7 +179,6 @@ class Board {
                 setXYToNum(i, y, possibilitiesAt(i, y).iterator().next());
 
             possibilitiesAt(x, i).remove(board[x][y]);
-            //assert possibilitiesAt(x, i).iterator().next().equals(possibilitiesAt(x, i).stream().findFirst().get());
             if (possibilitiesAt(x, i).size() == 1)
                 setXYToNum(x, i, possibilitiesAt(x, i).iterator().next());
         }
@@ -149,6 +188,7 @@ class Board {
         for (int i = 0; i < 9; i++) {
             validBoard = setObviousPossibilities(i, y);
             if (!validBoard) return false;
+
             validBoard = setObviousPossibilities(x, i);
             if (!validBoard) return false;
         }
@@ -165,10 +205,11 @@ class Board {
     // if a field has a possibility that no other field in its row/col/square has =>
     // set that possibility as XY
     private boolean setObviousPossibilities(int x, int y) {
-        for (var p : possibilitiesAt(x, y)) {
+        var startX = (x / 3) * 3;
+        var startY = (y / 3) * 3;
+
+        for (int p : possibilitiesAt(x, y)) {
             // check in square START
-            var startX = (x / 3) * 3;
-            var startY = (y / 3) * 3;
             var possibleInSquare = true;
             for (int i = startX; i < startX + 3; i++) {
                 for (int j = startY; j < startY + 3; j++) {
@@ -180,8 +221,7 @@ class Board {
                 if (!possibleInSquare) break;
             }
 
-            if (possibleInSquare)
-                return setXYToNum(x, y, p);
+            if (possibleInSquare) return setXYToNum(x, y, p);
             // check in square END
 
             // check in vertical/horizontal START
@@ -200,10 +240,8 @@ class Board {
                 }
             }
 
-            if (possibleInHorizontal)
-                return setXYToNum(x, y, p);
-            if (possibleInVertical)
-                return setXYToNum(x, y, p);
+            if (possibleInHorizontal) return setXYToNum(x, y, p);
+            if (possibleInVertical) return setXYToNum(x, y, p);
             // check in vertical/horizontal END
         }
         return true;
@@ -212,11 +250,24 @@ class Board {
     boolean isValidBoard() {
         for (int i = 0; i < 9; i++) {
             for (int j = 0; j < 9; j++) {
-                if (board[i][j] == 0 && possibilitiesAt(i, j).size() == 0)
-                    return false;
+                if (board[i][j] == 0 && possibilitiesAt(i, j).size() == 0) return false;
             }
         }
         return true;
+    }
+
+    int numEmptyPositions() {
+        int emptyCount = 0;
+        for (int i = 0; i < 9; i++) {
+            for (int j = 0; j < 9; j++){
+                if (board[i][j] == 0) emptyCount++;
+            }
+        }
+        return emptyCount;
+    }
+
+    Set<Integer> possibilitiesAt(int x, int y) {
+        return boardPossibilities.get(x).get(y);
     }
 }
 
@@ -228,129 +279,3 @@ class Position {
         this.y = y;
     }
 }
-
-/*
-possibilitiesAt(x, y).removeAll(possibilitiesAt(x, y));
-
-var modifiedPositions = new LinkedList<Position>();
-var modifiedPositionsSet = new HashSet<Position>();
-modifiedPositions.add(new Position(x, y));
-modifiedPositionsSet.add(new Position(x, y));
-
-var startX = (x / 3) * 3;
-var startY = (y / 3) * 3;
-for (int i = startX; i <= startX + 3; i++) {
-    for (int j = startY; j <= startY + 3; j++) {
-        if (possibilitiesAt(i, j).contains(board[x][y])) {
-            possibilitiesAt(i, j).remove(board[x][y]);
-
-            boolean added = modifiedPositionsSet.add(new Position(i, j));
-            if (added) modifiedPositions.add(new Position(i, j));
-
-            if (possibilitiesAt(i, j).size() == 1)
-                setXYToNum(i, j, possibilitiesAt(i, j).stream().findFirst().get());
-        }
-    }
-}
-// remove possibilities vertical and horizontal
-for (int i = 0; i < 9; i++) {
-    if (possibilitiesAt(i, y).contains(board[x][y])) {
-        possibilitiesAt(i, y).remove(board[x][y]);
-
-        boolean added = modifiedPositionsSet.add(new Position(i, y));
-        if (added) modifiedPositions.add(new Position(i, y));
-
-        if (possibilitiesAt(i, y).size() == 1)
-            setXYToNum(i, y, possibilitiesAt(i, y).stream().findFirst().get());
-    }
-    if (possibilitiesAt(x, i).contains(board[x][y])) {
-        possibilitiesAt(x, i).remove(board[x][y]);
-
-        boolean added = modifiedPositionsSet.add(new Position(x, i));
-        if (added) modifiedPositions.add(new Position(x, i));
-
-        if (possibilitiesAt(x, i).size() == 1)
-            setXYToNum(x, i, possibilitiesAt(x, i).stream().findFirst().get());
-    }
-}
-
-// for every modified position
-// check if possibilities in same square, row or column change as a result
-// if so => change possibilities
-for (var pos : modifiedPositions) {
-    // remove possibilities square START
-    startX = (pos.x / 3) * 3;
-    startY = (pos.y / 3) * 3;
-
-    var numSquareFieldsWithSamePossibilities = 0;
-    for (int i = startX; i <= startX + 3; i++) {
-        for (int j = startY; j <= startY + 3; j++) {
-            if (possibilitiesAt(i, j).equals(possibilitiesAt(pos.x, pos.y))) {
-                numSquareFieldsWithSamePossibilities++;
-            }
-        }
-    }
-    if (numSquareFieldsWithSamePossibilities == possibilitiesAt(pos.x, pos.y).size()) {
-        for (int i = startX; i <= startX + 3; i++) {
-            for (int j = startY; j <= startY + 3; j++) {
-
-                if (possibilitiesAt(i, j).equals(possibilitiesAt(pos.x, pos.y)))
-                    continue;
-
-                boolean anyElementRemoved = possibilitiesAt(i, j).removeAll(possibilitiesAt(pos.x, pos.y));
-                if (anyElementRemoved) {
-                    boolean added = modifiedPositionsSet.add(new Position(i, j));
-                    if (added) modifiedPositions.add(new Position(i, j));
-
-                    if (possibilitiesAt(i, j).size() == 1)
-                        setXYToNum(i, j, possibilitiesAt(i, j).stream().findFirst().get());
-                }
-            }
-        }
-    }
-    // remove possibilities square END
-
-    // remove possibilities vertical and horizontal START
-    var numFieldsInRowWithSamePossibilities = 0;
-    var numFieldsInColWithSamePossibilities = 0;
-    for (int i = 0; i < 9; i++) {
-        if (possibilitiesAt(i, y).equals(possibilitiesAt(pos.x, pos.y))) {
-            numFieldsInRowWithSamePossibilities++;
-        }
-        if (possibilitiesAt(x, i).equals(possibilitiesAt(pos.x, pos.y))) {
-            numFieldsInColWithSamePossibilities++;
-        }
-    }
-    if (numFieldsInRowWithSamePossibilities == possibilitiesAt(pos.x, pos.y).size()) {
-        for (int i = 0; i < 9; i++) {
-            if (possibilitiesAt(i, y).equals(possibilitiesAt(pos.x, pos.y)))
-                continue;
-
-            boolean anyElementRemoved = possibilitiesAt(i, y).removeAll(possibilitiesAt(pos.x, pos.y));
-            if (anyElementRemoved) {
-                boolean added = modifiedPositionsSet.add(new Position(i, y));
-                if (added) modifiedPositions.add(new Position(i, y));
-
-                if (possibilitiesAt(i, y).size() == 1)
-                    setXYToNum(i, y, possibilitiesAt(i, y).stream().findFirst().get());
-            }
-        }
-    }
-    if (numFieldsInColWithSamePossibilities == possibilitiesAt(pos.x, pos.y).size()) {
-        for (int i = 0; i < 9; i++) {
-            if (possibilitiesAt(x, i).equals(possibilitiesAt(pos.x, pos.y)))
-                continue;
-
-            boolean anyElementRemoved = possibilitiesAt(x, i).removeAll(possibilitiesAt(pos.x, pos.y));
-            if (anyElementRemoved) {
-                boolean added = modifiedPositionsSet.add(new Position(x, i));
-                if (added) modifiedPositions.add(new Position(x, i));
-
-                if (possibilitiesAt(x, i).size() == 1)
-                    setXYToNum(x, i, possibilitiesAt(x, i).stream().findFirst().get());
-            }
-        }
-    }
-    // remove possibilities vertical and horizontal END
-}
-*/
