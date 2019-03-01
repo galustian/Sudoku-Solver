@@ -6,7 +6,7 @@ public class Main {
     public static void main(String[] args) {
         var sudokuBoards = getSudokuBoardsFromFile("sudoku.txt");
         for (var sudokuBoard : sudokuBoards) {
-            System.out.println("Unsolved:");
+            System.out.println("\nUnsolved:");
             printSudokuBoard(sudokuBoard.board);
 
             var solvedBoard = getSolvedBoard(sudokuBoard);
@@ -139,8 +139,8 @@ class Board {
     }
 
     Position getPosWithLeastPossibilities() {
-        var leastNum = possibilitiesAt(0, 0).size();
-        var leastPos = new Position(0, 0);
+        var leastNum = 10;
+        Position leastPos = null;
         for (int i = 0; i < 9; i++) {
             for (int j = 0; j < 9; j++) {
                 if (possibilitiesAt(i, j).size() == 0) continue;
@@ -165,20 +165,25 @@ class Board {
         var startX = (x / 3) * 3;
         var startY = (y / 3) * 3;
         for (int i = startX; i < startX + 3; i++) {
-            for (int j = startY; j < startY + 3; j++) {
+            for (int j = startY; j < startY + 3; j++)
                 possibilitiesAt(i, j).remove(board[x][y]);
-
-                if (possibilitiesAt(i, j).size() == 1)
-                    setXYToNum(i, j, possibilitiesAt(i, j).iterator().next());
-            }
         }
         // remove possibilities vertical and horizontal
         for (int i = 0; i < 9; i++) {
             possibilitiesAt(i, y).remove(board[x][y]);
+            possibilitiesAt(x, i).remove(board[x][y]);
+        }
+
+        // if 1 possibility, setXY
+        for (int i = startX; i < startX + 3; i++) {
+            for (int j = startY; j < startY + 3; j++) {
+                if (possibilitiesAt(i, j).size() == 1)
+                    setXYToNum(i, j, possibilitiesAt(i, j).iterator().next());
+            }
+        }
+        for (int i = 0; i < 9; i++) {
             if (possibilitiesAt(i, y).size() == 1)
                 setXYToNum(i, y, possibilitiesAt(i, y).iterator().next());
-
-            possibilitiesAt(x, i).remove(board[x][y]);
             if (possibilitiesAt(x, i).size() == 1)
                 setXYToNum(x, i, possibilitiesAt(x, i).iterator().next());
         }
